@@ -16,6 +16,10 @@ const session = require("express-session");
 const passport = require("passport");
 const passportLocalMongoose = require("passport-local-mongoose");
 
+// L6
+const GoogleStrategy = require("passport-google-oauth20").Strategy;
+const findOrCreate = require("mongoose-findorcreate"); // to use mongoose.findOrCreate
+
 const app = express();
 
 app.use(express.static("public"));
@@ -41,6 +45,7 @@ mongoose.connect("mongodb://localhost:27017/userDB");
 const userSchema = new mongoose.Schema({
   email: String,
   password: String,
+  googleId: String,
 });
 
 // conveinient method of encrypting in mongoose-encryption package
@@ -51,6 +56,8 @@ const secret = process.env.SECRET;
 
 // PASSPORT JS PLUGIN:
 userSchema.plugin(passportLocalMongoose);
+// Add findOrCreate plugin to mongoose schema
+userSchema.plugin(findOrCreate);
 
 const User = new mongoose.model("User", userSchema);
 
@@ -59,12 +66,65 @@ const User = new mongoose.model("User", userSchema);
 // deserialize - to be able to open/use cookies
 passport.use(User.createStrategy());
 
-passport.serializeUser(User.serializeUser());
-passport.deserializeUser(User.deserializeUser());
+// for local sessions -
+// passport.serializeUser(User.serializeUser());
+// passport.deserializeUser(User.deserializeUser());
+
+// for all general sessions - (from passportJs docs)
+passport.serializeUser(function (user, done) {
+  done(null, user.id);
+});
+
+passport.deserializeUser(function (id, done) {
+  User.findById(id, function (err, user) {
+    done(err, user);
+  });
+});
+
+passport.use(
+  new GoogleStrategy(
+    {
+      clientID: process.env.CLIENT_ID,
+      clientSecret: process.env.CLIENT_SECRET,
+      callbackURL: "http://localhost:3000/auth/google/secrets",
+      // Google+ deprecation fix - https://github.com/jaredhanson/passport-google-oauth2/pull/51
+      userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
+    },
+    async function (accessToken, refreshToken, profile, cb) {
+      console.log(profile);
+      // implementing findOrCreate using findOrCreate plugin in 'mongoose-findOrCreate' npm package
+      User.findOrCreate({ googleId: profile.id }, function (err, user) {
+        
+        return cb(err, user);
+      });
+    }
+  )
+);
 
 app.get("/", (req, res) => {
   res.render("home");
 });
+
+// app.get("/auth/google", (req, res) => {
+//   // this auth uses the new google strategy instead of local one
+//   passport.authenticate("google", { scope: ["profile"] });
+// });
+// ERR: ABOVE WONT WORK
+app.get(
+  "/auth/google",
+  passport.authenticate("google", {
+    scope: ["profile"],
+  })
+);
+
+app.get(
+  "/auth/google/secrets",
+  passport.authenticate("google", { failureRedirect: "/login" }),
+  function (req, res) {
+    // Successful authentication, redirect home.
+    res.redirect("/secrets");
+  }
+);
 
 app.get("/login", (req, res) => {
   res.render("login");
@@ -73,6 +133,7 @@ app.get("/login", (req, res) => {
 app.get("/register", (req, res) => {
   res.render("register");
 });
+
 app.get("/secrets", (req, res) => {
   // only if the user is signed in, allow them to access main page
   if (req.isAuthenticated()) {
