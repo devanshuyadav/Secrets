@@ -46,6 +46,7 @@ const userSchema = new mongoose.Schema({
   email: String,
   password: String,
   googleId: String,
+  secret: String,
 });
 
 // conveinient method of encrypting in mongoose-encryption package
@@ -94,7 +95,6 @@ passport.use(
       console.log(profile);
       // implementing findOrCreate using findOrCreate plugin in 'mongoose-findOrCreate' npm package
       User.findOrCreate({ googleId: profile.id }, function (err, user) {
-        
         return cb(err, user);
       });
     }
@@ -135,13 +135,53 @@ app.get("/register", (req, res) => {
 });
 
 app.get("/secrets", (req, res) => {
+  // // only if the user is signed in, allow them to access main page
+  // if (req.isAuthenticated()) {
+  //   res.render("secrets");
+  // } else {
+  //   // else send them back for logging in
+  //   res.redirect("/login");
+  // }
+
+  // now we'll display ALL secrets posted, Anonymously
+  // check if a secret exists, or NOT EQUAL TO NULL.
+  User.find({ secret: { $ne: null } }, (err, foundUsers) => {
+    if (err) {
+      console.log(err);
+    } else {
+      if (foundUsers) {
+        res.render("secrets", { usersWithSecrets: foundUsers });
+      }
+    }
+  });
+});
+
+app.get("/submit", (req, res) => {
   // only if the user is signed in, allow them to access main page
   if (req.isAuthenticated()) {
-    res.render("secrets");
+    res.render("submit");
   } else {
     // else send them back for logging in
     res.redirect("/login");
   }
+});
+
+app.post("/submit", (req, res) => {
+  const newSecret = req.body.secret;
+  console.log(req.user);
+
+  User.findById(req.user.id, (err, foundUser) => {
+    if (err) {
+      console.log(err);
+    } else {
+      if (foundUser) {
+        foundUser.secret = newSecret;
+        foundUser.save((err) => {
+          res.redirect("/secrets");
+        });
+      }
+    }
+  });
 });
 
 app.post("/register", (req, res) => {
